@@ -5,7 +5,40 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
+import math
 import matplotlib.pyplot as plt
+
+class Sim(object):
+
+    def __init__(self, envName):
+        self.env = gym.make(envName)
+
+    def reset(self):
+        self.env.reset()
+
+    def go(self, action):
+        return self.env.step(action)
+
+    def render(self, RGB):
+        if RGB == True:
+            return self.env.render('rgb_array')
+        else:
+            self.env.render()
+
+    def imgProcess(self,rgb):
+        r, g, b = rgb[:,:,0], rgb[:,:,1], rgb[:,:,2]
+        gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
+        shrink = cv2.resize(gray, (84, 110))
+        crop = shrink[16:16+84,:]
+        # plt.imshow(crop, cmap='gray')
+        return crop
+
+    def refresh(frames,obs):
+        frames[0][0] = frames[0][1]
+        frames[0][1] = frames[0][2]
+        frames[0][2] = frames[0][3]
+        frames[0][3] = obs
+        return frames
 
 
 class Net(torch.nn.Module):
@@ -32,22 +65,9 @@ class Net(torch.nn.Module):
             num_features *= s
         return num_features
 
+class Policy(object):
 
-class simulator(object):
-    __slots__ = "env"
-
-    def __init__(self,envName):
-        self.env = gym.make(envName)
-
-    def imgProcess(self,rgb):
-        r, g, b = rgb[:,:,0], rgb[:,:,1], rgb[:,:,2]
-        gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        shrink = cv2.resize(gray, (84, 110))
-        crop = shrink[16:16+84,:]
-        # plt.imshow(crop, cmap='gray')
-        return crop
-
-    def epsl_grd(self,Q,epsl):
+    def epsl_grd(Q,epsl):
         rd = np.random.ranf()
         if rd < epsl:
             return np.random.randint(Q.size)
@@ -55,38 +75,52 @@ class simulator(object):
             return np.argmax(Q)
 
 
-    def refresh(self,frames,obs):
-        frames[0] = frames[1]
-        frames[1] = frames[2]
-        frames[2] = frames[3]
-        frames[3] = obs
-        return frames
 
-    def update(self,net,sample):
+class DQN(object):
+
+    def __init__(self):
+        self.net = Net()
+        self.criterion = torch.nn.MSELoss()
+        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=0.01, alpha=0.9)
+        self.beta = 0.5
+
+
+
+    def update(self,sample):
         batch_size = len(sample)
-        y = np.empty(shape=(batch_size,1))
+        batch_x = np.empty(shape=(batch_size,4,84,84))
+        batch_xNew = np.empty(shape=(batch_size,4,84,84))
+        for x,i in enumerate(sample):
+            batch_x[x] = i['phai']
+            batch_xNew[x] = i['newPhai']
+        input1 = Variable(torch.FloatTensor(batch_x))
+        input2 = Variable(torch.FloatTensor(batch_xNew))
+        output = self.net(input1)
+        y = output.data.numpy()
+        Qnew = self.net(input2).data.numpy()
         for i in range(batch_size):
-            if sample[i][4] == False:
-                y[i]
-        return
+            a = sample[i]['a']
+            if sample[i]['end'] == True:
+                y[i][a] = sample[i]['r']
+            else:
+                y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
+        loss = self.criterion(output,Variable(torch.FloatTensor(y)))
+        loss.backward()
+        self.optimizer.step()
 
 
-
-
-
-
-
-    def DQN_train(self):
-        M = 10
-        N = 128
-        D = []
+    def train(self):
+        simulator = Sim("Breakout-v0")
+        num_epoch = 10
+        capacity = 1e6
+        memory = []
         batch_size = 32
         net = Net()
-        for i_episode in range(M):
-            self.env.reset()
-            obs = self.env.render('rgb_array')
-            obs = self.imgProcess(obs)
-            frames = np.empty(shape=(1,4,84,84))
+        for i_episode in range(num_epoch):
+            simulator.reset()
+            obs = simulator.render(RGB=True)
+            obs = simulator.imgProcess(obs)
+            frames = np.empty(shape=(1,4,84,84))#batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
@@ -96,34 +130,54 @@ class simulator(object):
                 # self.env.render()
 
                 input = Variable(torch.FloatTensor(frames))
-                Q = net(input).data.numpy()
-                action = self.epsl_grd(Q,0.1)
-                newObs, reward, done, _ = self.env.step(action)
+                Q = self.net(input).data.numpy()
+                action = Policy.epsl_grd(Q,0.5)
+                newObs, reward, done, _ = simulator.go(action)
                 reward = np.sign(reward)# scale the reward for all games
-                newObs = self.imgProcess(newObs)
-                newframes = self.refresh(frames, newObs)
-                exprc = (frames,action,reward,newframes,done)
+                newObs = simulator.imgProcess(newObs)
+                newframes = Sim.refresh(frames, newObs)
+                exprc = {'phai':frames,'a':action,'r':reward,'newPhai':newframes,'end':done}
                 frames = newframes
-                D.append(exprc)
-                if len(D) > N:
-                    D.pop(0)
+                memory.append(exprc)
+                if len(memory) > capacity:
+                    memory.pop(0)
 
-                if len(D) == N:
-                    sample = random.sample(D,batch_size)
-                    self.update(net,sample)
+                if len(memory) > (batch_size - 1) * 4:
+                    num_segs = math.ceil(len(memory)/4)
+                    segs = [i for i in range(num_segs-1)]
+
+                    idx = [i*4 for i in random.sample(segs,batch_size-1)] #random sample batchsize - 1 sagments and use the first frame as sample
+                    idx += [len(memory)-1] #always add the last frame
+
+                    sample = [memory[i] for i in idx]
+                    self.update(sample)
+
 
 
                 step += 1
 
                 if done:
                     print("Episode finished after %d timesteps" % step)
-                    print(len(D))
+                    print(len(memory))
                     break
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 if __name__ == "__main__":
-    ski = simulator("Breakout-v0")
-    ski.DQN_train()
+    net = DQN()
+    net.train()
 
 
 # ACTION_MEANING = {
