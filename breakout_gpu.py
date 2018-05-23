@@ -93,8 +93,8 @@ class DQN(object):
         for x,i in enumerate(sample):
             batch_x[x] = i['phai']
             batch_xNew[x] = i['newPhai']
-        input1 = Variable(torch.FloatTensor(batch_x))
-        input2 = Variable(torch.FloatTensor(batch_xNew))
+        input1 = Variable(torch.FloatTensor(batch_x)).cuda()
+        input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
         output = self.net(input1)
         y = output.data.numpy()
         Qnew = self.net(input2).data.numpy()
@@ -104,7 +104,7 @@ class DQN(object):
                 y[i][a] = sample[i]['r']
             else:
                 y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        loss = self.criterion(output,Variable(torch.FloatTensor(y)))
+        loss = self.criterion(output,Variable(torch.FloatTensor(y)).cuda())
         loss.backward()
         self.optimizer.step()
 
@@ -115,7 +115,7 @@ class DQN(object):
         capacity = 1e6
         memory = []
         batch_size = 32
-        self.net.train()
+        self.net = Net()
         for i_episode in range(num_epoch):
             simulator.reset()
             obs = simulator.render(RGB=True)
@@ -130,7 +130,7 @@ class DQN(object):
             while True:
                 # self.env.render()
 
-                input = Variable(torch.FloatTensor(frames))
+                input = Variable(torch.FloatTensor(frames)).cuda()
                 Q = self.net(input).data.numpy()
                 action = Policy.epsl_grd(Q,0.5)
                 newObs, reward, done, _ = simulator.go(action)
