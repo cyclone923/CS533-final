@@ -81,7 +81,7 @@ class DQN(object):
     def __init__(self):
         self.net = Net()
         self.criterion = torch.nn.MSELoss()
-        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=0.01, alpha=0.9)
+        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=0.001, alpha=0.9)
         self.beta = 1
 
     def update(self, sample):
@@ -108,15 +108,23 @@ class DQN(object):
 
     def train(self):
         simulator = Sim("Breakout-v0")
-        num_epoch = 100
         capacity = 1e6
         memory = []
         batch_size = 32
         i_episode = 0
         total_frame = 0
+        i_epoch = 0
+        performance = []
         while True:
-            if total_frame >= 1e7:
-                break
+            if total_frame - i_epoch * 1e6 >= 1e6:
+                torch.save(self.net.state_dict(), 'netWeight alpha=0.001/' + str(i_epoch) + '.pth')
+                f = open('netWeight alpha=0.001/' + str(i_epoch) + '.txt', 'w')
+                for item in performance:
+                    f.write("%d," % item)
+                f.write("\n")
+                i_epoch += 1
+                if i_epoch == 10:
+                    break
             simulator.reset()
             obs = simulator.render(RGB=True)
             obs = simulator.imgProcess(obs)
@@ -127,13 +135,14 @@ class DQN(object):
             frames[0][3] = obs
             step = 0
             eval = 0
+            action = 0
             while True:
                 # self.env.render()
-
-                input = Variable(torch.FloatTensor(frames))
-                Q = self.net(input).cpu().data.numpy()
-                delta = 0.9 / capacity
-                action = epsl_grd(Q, 1 - delta * len(memory))
+                if step % 4 == 0:
+                    input = Variable(torch.FloatTensor(frames))
+                    Q = self.net(input).cpu().data.numpy()
+                    delta = 0.9 / capacity
+                    action = epsl_grd(Q, 1 - delta * len(memory))
                 newObs, reward, done, _ = simulator.go(action)
                 eval += reward
                 reward = np.sign(reward)  # scale the reward for all games
@@ -145,20 +154,15 @@ class DQN(object):
                 if len(memory) > capacity:
                     memory.pop(0)
 
-                if len(memory) > (batch_size - 1) * 4:
-                    num_segs = int(math.ceil(len(memory) / 4))
-                    segs = [i for i in range(num_segs - 1)]
-                    idx = [i * 4 for i in random.sample(segs,
-                                                        batch_size - 1)]  # random sample batchsize - 1 sagments and use the first frame as sample
-                    idx += [len(memory) - 1]  # always add the last frame
-
-                    sample = [memory[i] for i in idx]
+                if len(memory) >= batch_size:
+                    sample = [i for i in random.sample(memory, batch_size)]
                     self.update(sample)
 
                 step += 1
 
                 if done:
                     total_frame += step
+                    performance.append(eval)
                     print("Episode finished after %d timesteps" % step)
                     print("Frames have been created: %d" % total_frame)
                     print("Memory length: %d" % len(memory))
