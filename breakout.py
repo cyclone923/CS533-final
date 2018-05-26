@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import math
 
 
 class Sim(object):
@@ -68,14 +67,6 @@ def epsl_grd(Q, epsl):
         return np.argmax(Q)
 
 
-def refresh(frames, obs):
-    frames[0][0] = frames[0][1]
-    frames[0][1] = frames[0][2]
-    frames[0][2] = frames[0][3]
-    frames[0][3] = obs
-    return frames
-
-
 class DQN(object):
 
     def __init__(self):
@@ -115,10 +106,12 @@ class DQN(object):
         total_frame = 0
         i_epoch = 0
         performance = []
+        trainExamples = 0
         while True:
-            if total_frame - i_epoch * 1e6 >= 1e6:
-                torch.save(self.net.state_dict(), 'netWeight alpha=0.001/' + str(i_epoch) + '.pth')
-                f = open('netWeight alpha=0.001/' + str(i_epoch) + '.txt', 'w')
+            if trainExamples - i_epoch * 1e6 >= 1e6:
+                print("Save Info after epoch: %d" % i_epoch)
+                torch.save(self.net.state_dict(), 'netWeight/0003/' + str(i_epoch) + '.pth')
+                f = open('performance/0003/' + str(i_epoch) + '.txt', 'w')
                 for item in performance:
                     f.write("%d," % item)
                 f.write("\n")
@@ -133,30 +126,38 @@ class DQN(object):
             frames[0][1] = obs
             frames[0][2] = obs
             frames[0][3] = obs
+            newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
+            sumReward = 0
             step = 0
             eval = 0
             action = 0
             while True:
                 # self.env.render()
-                if step % 4 == 0:
+                n = step % 4
+                if n == 0:
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
+                    sumReward = 0
+
                 newObs, reward, done, _ = simulator.go(action)
                 eval += reward
-                reward = np.sign(reward)  # scale the reward for all games
+                sumReward += np.sign(reward)  # scale the reward for all games
                 newObs = simulator.imgProcess(newObs)
-                newframes = refresh(frames, newObs)
-                exprc = {'phai': frames, 'a': action, 'r': reward, 'newPhai': newframes, 'end': done}
-                frames = newframes
-                memory.append(exprc)
-                if len(memory) > capacity:
-                    memory.pop(0)
+                newFrames[0][n] = newObs
 
-                if len(memory) >= batch_size:
-                    sample = [i for i in random.sample(memory, batch_size)]
-                    self.update(sample)
+                if n == 3:
+                    exprc = {'phai': frames, 'a': action, 'r': sumReward, 'newPhai': newFrames, 'end': done}
+                    memory.append(exprc)
+                    if len(memory) > capacity:
+                        memory.pop(0)
+
+                    if len(memory) >= batch_size:
+                        sample = [i for i in random.sample(memory, batch_size)]
+                        self.update(sample)
+                    frames = newFrames
+                    trainExamples += 1
 
                 step += 1
 
@@ -164,9 +165,11 @@ class DQN(object):
                     total_frame += step
                     performance.append(eval)
                     print("Episode finished after %d timesteps" % step)
-                    print("Frames have been created: %d" % total_frame)
+                    print("Frames trained: %d" % trainExamples)
+                    print("Frames created: %d" % total_frame)
                     print("Memory length: %d" % len(memory))
                     print("Score in %d episode: %d" % (i_episode, eval))
+                    print("")
                     i_episode += 1
                     break
 
