@@ -176,7 +176,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("Breakout-v0")
+    agent = Agent("BreakoutNoFrameskip-v0")
     agent.train()
 
 # ACTION_MEANING = {
