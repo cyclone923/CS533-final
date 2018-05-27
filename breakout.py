@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
+import math
 
 
 class Sim(object):
@@ -67,13 +68,15 @@ def epsl_grd(Q, epsl):
         return np.argmax(Q)
 
 
-class DQN(object):
+class Agent(object):
 
-    def __init__(self):
+    def __init__(self, gameName):
+        self.simulator = Sim(gameName)
+        self.beta = 1
+        self.alpha = 0.001
         self.net = Net()
         self.criterion = torch.nn.MSELoss()
-        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=0.001, alpha=0.9)
-        self.beta = 1
+        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.9)
 
     def update(self, sample):
         batch_size = len(sample)
@@ -98,29 +101,25 @@ class DQN(object):
         self.optimizer.step()
 
     def train(self):
-        simulator = Sim("Breakout-v0")
         capacity = 1e6
         memory = []
         batch_size = 32
         i_episode = 0
         total_frame = 0
         i_epoch = 0
-        performance = []
         trainExamples = 0
+        self.net.train()
         while True:
-            if trainExamples - i_epoch * 1e6 >= 1e6:
+            if trainExamples - i_epoch * 1e5 >= 1e5:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/0003/' + str(i_epoch) + '.pth')
-                f = open('performance/0003/' + str(i_epoch) + '.txt', 'w')
-                for item in performance:
-                    f.write("%d," % item)
-                f.write("\n")
+                torch.save(self.net.state_dict(), 'netWeight/' + str(i_epoch) + '.pth')
                 i_epoch += 1
-                if i_epoch == 10:
+                if i_epoch == 100:
                     break
-            simulator.reset()
-            obs = simulator.render(RGB=True)
-            obs = simulator.imgProcess(obs)
+            self.simulator.reset()
+            self.simulator.go(1)
+            obs = self.simulator.render(RGB=True)
+            obs = self.simulator.imgProcess(obs)
             frames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
@@ -132,19 +131,22 @@ class DQN(object):
             eval = 0
             action = 0
             while True:
-                # self.env.render()
+                self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames))
-                    Q = self.net(input).cpu().data.numpy()
-                    delta = 0.9 / capacity
-                    action = epsl_grd(Q, 1 - delta * len(memory))
+                    if step == 0:
+                        action = 1
+                    else:
+                        input = Variable(torch.FloatTensor(frames))
+                        Q = self.net(input).cpu().data.numpy()
+                        delta = 0.9 / capacity
+                        action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
 
-                newObs, reward, done, _ = simulator.go(action)
+                newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
                 sumReward += np.sign(reward)  # scale the reward for all games
-                newObs = simulator.imgProcess(newObs)
+                newObs = self.simulator.imgProcess(newObs)
                 newFrames[0][n] = newObs
 
                 if n == 3:
@@ -163,7 +165,6 @@ class DQN(object):
 
                 if done:
                     total_frame += step
-                    performance.append(eval)
                     print("Episode finished after %d timesteps" % step)
                     print("Frames trained: %d" % trainExamples)
                     print("Frames created: %d" % total_frame)
@@ -175,8 +176,8 @@ class DQN(object):
 
 
 if __name__ == "__main__":
-    net = DQN()
-    net.train()
+    agent = Agent("BreakoutNoFrameskip-v0")
+    agent.train()
 
 # ACTION_MEANING = {
 #     0 : "NOOP",
