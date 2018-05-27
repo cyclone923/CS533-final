@@ -76,10 +76,9 @@ class Agent(object):
     def eval(self):
 
         i_episode = 0
-        i_epoch = 0
-        self.net.load_state_dict(torch.load('0.pth'))
+        self.net.load_state_dict(torch.load('1.pth'))
         self.net.eval()
-        for i_epoch in range(100):
+        for i_epoch in range(1):
             self.simulator.reset()
             self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
@@ -99,6 +98,7 @@ class Agent(object):
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
+                    print(Q)
                     action = np.argmax(Q)
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward

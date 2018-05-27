@@ -1,4 +1,5 @@
 from __future__ import division
+import sys
 import gym
 import cv2
 import torch
@@ -101,7 +102,7 @@ class Agent(object):
         self.optimizer.step()
 
     def train(self):
-        capacity = 1e6
+        capacity = 1e5
         memory = []
         batch_size = 32
         i_episode = 0
@@ -110,9 +111,10 @@ class Agent(object):
         trainExamples = 0
         self.net.train()
         while True:
-            if trainExamples - i_epoch * 1e5 >= 1e5:
+            sys.stdout.flush()
+            if trainExamples - i_epoch * 1e4 >= 1e4:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + '.pth')
                 i_epoch += 1
                 if i_epoch == 100:
                     break
@@ -131,11 +133,12 @@ class Agent(object):
             eval = 0
             action = 0
             while True:
-                self.simulator.env.render()
+                # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
+                    print(Q)
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
@@ -145,6 +148,12 @@ class Agent(object):
                 sumReward += np.sign(reward)  # scale the reward for all games
                 newObs = self.simulator.imgProcess(newObs)
                 newFrames[0][n] = newObs
+
+                if done:
+                    while n < 3:
+                        print("padding end")
+                        n += 1
+                        newFrames[0][n] = newObs
 
                 if n == 3:
                     exprc = {'phai': frames, 'a': action, 'r': sumReward, 'newPhai': newFrames, 'end': done}

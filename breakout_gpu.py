@@ -87,16 +87,18 @@ class Agent(object):
             batch_xNew[x] = i['newPhai']
         input1 = Variable(torch.FloatTensor(batch_x)).cuda()
         input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
-        output = self.net(input1)
-        y = output.cpu().data.numpy()
-        Qnew = self.net(input2).cpu().data.numpy()
+        output1 = self.net(input1)
+        y = output1.cpu().data.numpy()
+        output2 = self.net(input2)
+        Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
             a = sample[i]['a']
             if sample[i]['end'] == True:
                 y[i][a] = sample[i]['r']
             else:
                 y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        loss = self.criterion(output, Variable(torch.FloatTensor(y)).cuda())
+        lable = Variable(torch.FloatTensor(y)).cuda()
+        loss = self.criterion(output1, lable)
         loss.backward()
         self.optimizer.step()
 
@@ -110,7 +112,7 @@ class Agent(object):
         trainExamples = 0
         self.net.train()
         while True:
-            if trainExamples - i_epoch * 1e5 >= 0:
+            if trainExamples - i_epoch * 1e5 >= 1e5:
                 print("Save Info after epoch: %d" % i_epoch)
                 torch.save(self.net.state_dict(), 'netWeight/cuda/' + str(i_epoch) + '.pth')
                 self.net.cpu()
@@ -138,7 +140,9 @@ class Agent(object):
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames)).cuda()
-                    Q = self.net(input).cpu().data.numpy()
+                    out = self.net(input)
+                    Q = out.cpu().data.numpy()
+                    print(Q)
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
@@ -148,6 +152,12 @@ class Agent(object):
                 sumReward += np.sign(reward)  # scale the reward for all games
                 newObs = self.simulator.imgProcess(newObs)
                 newFrames[0][n] = newObs
+
+                if done:
+                    while n < 3:
+                        print("padding end")
+                        n += 1
+                        newFrames[0][n] = newObs
 
                 if n == 3:
                     exprc = {'phai': frames, 'a': action, 'r': sumReward, 'newPhai': newFrames, 'end': done}
