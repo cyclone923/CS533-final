@@ -5,8 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-import random
-import math
+
 
 
 class Sim(object):
@@ -60,12 +59,7 @@ class Net(torch.nn.Module):
         return num_features
 
 
-def epsl_grd(Q, epsl):
-    rd = np.random.ranf()
-    if rd < epsl:
-        return np.random.randint(Q.size)
-    else:
-        return np.argmax(Q)
+
 
 
 class Agent(object):
@@ -74,51 +68,18 @@ class Agent(object):
         self.simulator = Sim(gameName)
         self.beta = 1
         self.alpha = 0.001
-        self.net = Net().cuda()
+        self.net = Net()
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.9)
 
-    def update(self, sample):
-        batch_size = len(sample)
-        batch_x = np.empty(shape=(batch_size, 4, 84, 84))
-        batch_xNew = np.empty(shape=(batch_size, 4, 84, 84))
-        for x, i in enumerate(sample):
-            batch_x[x] = i['phai']
-            batch_xNew[x] = i['newPhai']
-        input1 = Variable(torch.FloatTensor(batch_x)).cuda()
-        input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
-        output = self.net(input1)
-        y = output.cpu().data.numpy()
-        Qnew = self.net(input2).cpu().data.numpy()
-        for i in range(batch_size):
-            a = sample[i]['a']
-            if sample[i]['end'] == True:
-                y[i][a] = sample[i]['r']
-            else:
-                y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        loss = self.criterion(output, Variable(torch.FloatTensor(y)).cuda())
-        loss.backward()
-        self.optimizer.step()
 
-    def train(self):
-        capacity = 1e6
-        memory = []
-        batch_size = 32
+    def eval(self):
+
         i_episode = 0
-        total_frame = 0
         i_epoch = 0
-        trainExamples = 0
-        self.net.train()
-        while True:
-            if trainExamples - i_epoch * 1e5 >= 0:
-                print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/cuda/' + str(i_epoch) + '.pth')
-                self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + '.pth')
-                self.net.cuda()
-                i_epoch += 1
-                if i_epoch == 100:
-                    break
+        self.net.load_state_dict(torch.load('0.pth'))
+        self.net.eval()
+        for i_epoch in range(100):
             self.simulator.reset()
             self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
@@ -129,46 +90,25 @@ class Agent(object):
             frames[0][2] = obs
             frames[0][3] = obs
             newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
-            sumReward = 0
             step = 0
             eval = 0
             action = 0
             while True:
-                # self.simulator.env.render()
+                self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames)).cuda()
+                    input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
-                    delta = 0.9 / capacity
-                    action = epsl_grd(Q, 1 - delta * len(memory))
-                    sumReward = 0
-
+                    action = np.argmax(Q)
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
-                sumReward += np.sign(reward)  # scale the reward for all games
                 newObs = self.simulator.imgProcess(newObs)
                 newFrames[0][n] = newObs
-
                 if n == 3:
-                    exprc = {'phai': frames, 'a': action, 'r': sumReward, 'newPhai': newFrames, 'end': done}
-                    memory.append(exprc)
-                    if len(memory) > capacity:
-                        memory.pop(0)
-
-                    if len(memory) >= batch_size:
-                        sample = [i for i in random.sample(memory, batch_size)]
-                        self.update(sample)
                     frames = newFrames
-                    trainExamples += 1
-
                 step += 1
-
                 if done:
-                    total_frame += step
                     print("Episode finished after %d timesteps" % step)
-                    print("Frames trained: %d" % trainExamples)
-                    print("Frames created: %d" % total_frame)
-                    print("Memory length: %d" % len(memory))
                     print("Score in %d episode: %d" % (i_episode, eval))
                     print("")
                     i_episode += 1
@@ -177,7 +117,7 @@ class Agent(object):
 
 if __name__ == "__main__":
     agent = Agent("BreakoutNoFrameskip-v0")
-    agent.train()
+    agent.eval()
 
 # ACTION_MEANING = {
 #     0 : "NOOP",

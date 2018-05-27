@@ -134,13 +134,10 @@ class Agent(object):
                 self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    if step == 0:
-                        action = 1
-                    else:
-                        input = Variable(torch.FloatTensor(frames))
-                        Q = self.net(input).cpu().data.numpy()
-                        delta = 0.9 / capacity
-                        action = epsl_grd(Q, 1 - delta * len(memory))
+                    input = Variable(torch.FloatTensor(frames))
+                    Q = self.net(input).cpu().data.numpy()
+                    delta = 0.9 / capacity
+                    action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
 
                 newObs, reward, done, _ = self.simulator.go(action)
