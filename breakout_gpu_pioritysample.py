@@ -183,7 +183,7 @@ class Agent(object):
 
                 if n == 3:
                     exprc = Expr(frames,action,sumReward,newFrames,done)
-                    heapq.heappush(memory,(sumReward,exprc))
+                    heapq.heappush(memory,(step,exprc))
                     if len(memory) > capacity:
                         heapq.heappop(memory)
 

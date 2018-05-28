@@ -1,5 +1,4 @@
 from __future__ import division
-import sys
 import gym
 import cv2
 import torch
@@ -43,7 +42,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4, padding=0)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2, padding=0)
         self.fc1 = torch.nn.Linear(in_features=2592, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=3)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -64,9 +63,9 @@ class Net(torch.nn.Module):
 def epsl_grd(Q, epsl):
     rd = np.random.ranf()
     if rd < epsl:
-        return np.random.randint(Q.size)
+        return np.random.randint(Q.size) + 1
     else:
-        return np.argmax(Q)
+        return np.argmax(Q) + 1
 
 
 class Agent(object):
@@ -83,6 +82,8 @@ class Agent(object):
         batch_size = len(sample)
         batch_x = np.empty(shape=(batch_size, 4, 84, 84))
         batch_xNew = np.empty(shape=(batch_size, 4, 84, 84))
+        diff = np.zeros(shape=(batch_size, 3))
+        indicate = np.ones(shape=(batch_size, 3))
         for x, i in enumerate(sample):
             batch_x[x] = i['phai']
             batch_xNew[x] = i['newPhai']
@@ -90,21 +91,28 @@ class Agent(object):
         input2 = Variable(torch.FloatTensor(batch_xNew))
         output1 = self.net(input1)
         output2 = self.net(input2)
-        y = output1.cpu().data.numpy()
+        # print(output1)
+        # print(output2)
+        # print(output1 + output2)
+        # exit(0)
         Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
             a = sample[i]['a']
             if sample[i]['end'] == True:
-                y[i][a] = sample[i]['r']
+                diff[i][a-1] = sample[i]['r']
+                indicate[i][a-1] = 0
             else:
-                y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        loss = self.criterion(output1, Variable(torch.FloatTensor(y)))
-        print(loss)
+                diff[i][a-1] = sample[i]['r'] + self.beta * max(Qnew[i])
+                indicate[i][a-1] = 0
+        diff = torch.FloatTensor(diff)
+        indicate = torch.FloatTensor(indicate)
+        lable = output1.data * indicate + diff
+        loss = self.criterion(output1, Variable(lable))
         loss.backward()
         self.optimizer.step()
 
     def train(self):
-        capacity = 1e5
+        capacity = 1e6
         memory = []
         batch_size = 32
         i_episode = 0
@@ -113,10 +121,9 @@ class Agent(object):
         trainExamples = 0
         self.net.train()
         while True:
-            sys.stdout.flush()
-            if trainExamples - i_epoch * 1e4 >= 1e4:
+            if trainExamples - i_epoch * 1e5 >= 1e5:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'beta1.pth')
                 i_epoch += 1
                 if i_epoch == 100:
                     break
@@ -129,21 +136,24 @@ class Agent(object):
             frames[0][1] = obs
             frames[0][2] = obs
             frames[0][3] = obs
-            newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
             sumReward = 0
             step = 0
             eval = 0
             action = 0
+            newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
             while True:
                 # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
-                    Q = self.net(input).cpu().data.numpy()
-                    # print(Q)
+                    out = self.net(input)
+                    Q = out.cpu().data.numpy()
+                    if step == 0:
+                        print(Q)
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
+                    newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward

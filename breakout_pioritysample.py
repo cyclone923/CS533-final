@@ -153,7 +153,7 @@ class Agent(object):
             action = 0
             newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
             while True:
-                # self.simulator.env.render()
+                self.simulator.env.render()
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
@@ -180,7 +180,7 @@ class Agent(object):
 
                 if n == 3:
                     exprc = Expr(frames,action,sumReward,newFrames,done)
-                    heapq.heappush(memory,(sumReward,exprc))
+                    heapq.heappush(memory,(step,exprc))
                     if len(memory) > capacity:
                         heapq.heappop(memory)
 
