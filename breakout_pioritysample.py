@@ -6,8 +6,19 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import math
+import heapq
 
+class Expr(object):
+
+    def __init__(self,phai,a,r,newPhai,done):
+        self.phai = phai
+        self.a = a
+        self.r = r
+        self.newPhai = newPhai
+        self.done = done
+
+    def __lt__(self, other):
+        return True
 
 class Sim(object):
 
@@ -72,9 +83,9 @@ class Agent(object):
 
     def __init__(self, gameName):
         self.simulator = Sim(gameName)
-        self.beta = 1
+        self.beta = 0.9
         self.alpha = 0.001
-        self.net = Net().cuda()
+        self.net = Net()
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.9)
 
@@ -85,10 +96,10 @@ class Agent(object):
         diff = np.zeros(shape=(batch_size, 3))
         indicate = np.ones(shape=(batch_size, 3))
         for x, i in enumerate(sample):
-            batch_x[x] = i['phai']
-            batch_xNew[x] = i['newPhai']
-        input1 = Variable(torch.FloatTensor(batch_x).cuda())
-        input2 = Variable(torch.FloatTensor(batch_xNew).cuda())
+            batch_x[x] = i.phai
+            batch_xNew[x] = i.newPhai
+        input1 = Variable(torch.FloatTensor(batch_x))
+        input2 = Variable(torch.FloatTensor(batch_xNew))
         output1 = self.net(input1)
         output2 = self.net(input2)
         # print(output1)
@@ -97,15 +108,15 @@ class Agent(object):
         # exit(0)
         Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
-            a = sample[i]['a']
-            if sample[i]['end'] == True:
-                diff[i][a-1] = sample[i]['r']
+            a = sample[i].a
+            if sample[i].done == True:
+                diff[i][a-1] = sample[i].r
                 indicate[i][a-1] = 0
             else:
-                diff[i][a-1] = sample[i]['r'] + self.beta * max(Qnew[i])
-                indicate[i][a-1] = 0
-        diff = torch.FloatTensor(diff).cuda()
-        indicate = torch.FloatTensor(indicate).cuda()
+                diff[i][a-1] = sample[i].r + self.beta * max(Qnew[i])
+
+        diff = torch.FloatTensor(diff)
+        indicate = torch.FloatTensor(indicate)
         lable = output1.data * indicate + diff
         loss = self.criterion(output1, Variable(lable))
         loss.backward()
@@ -123,10 +134,7 @@ class Agent(object):
         while True:
             if trainExamples - i_epoch * 1e5 >= 1e5:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/cuda/' + str(i_epoch) + 'beta1.pth')
-                self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'beta1.pth')
-                self.net.cuda()
+                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'beta09ps.pth')
                 i_epoch += 1
                 if i_epoch == 100:
                     break
@@ -148,7 +156,7 @@ class Agent(object):
                 # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames).cuda())
+                    input = Variable(torch.FloatTensor(frames))
                     out = self.net(input)
                     Q = out.cpu().data.numpy()
                     if step == 0:
@@ -171,13 +179,13 @@ class Agent(object):
                         newFrames[0][n] = newObs
 
                 if n == 3:
-                    exprc = {'phai': frames, 'a': action, 'r': sumReward, 'newPhai': newFrames, 'end': done}
-                    memory.append(exprc)
+                    exprc = Expr(frames,action,sumReward,newFrames,done)
+                    heapq.heappush(memory,(sumReward,exprc))
                     if len(memory) > capacity:
-                        memory.pop(0)
+                        heapq.heappop(memory)
 
-                    if len(memory) >= batch_size:
-                        sample = [i for i in random.sample(memory, batch_size)]
+                    if len(memory) >= batch_size * 2:
+                        sample = [i[1] for i in random.sample(memory[len(memory)//2:], batch_size)]
                         self.update(sample)
                     frames = newFrames
                     trainExamples += 1

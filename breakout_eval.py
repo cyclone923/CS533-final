@@ -41,7 +41,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4, padding=0)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2, padding=0)
         self.fc1 = torch.nn.Linear(in_features=2592, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=3)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -60,7 +60,12 @@ class Net(torch.nn.Module):
 
 
 
-
+def epsl_grd(Q, epsl):
+    rd = np.random.ranf()
+    if rd < epsl:
+        return np.random.randint(Q.size) + 1
+    else:
+        return np.argmax(Q) + 1
 
 class Agent(object):
 
@@ -76,7 +81,7 @@ class Agent(object):
     def eval(self):
 
         i_episode = 0
-        self.net.load_state_dict(torch.load('1.pth'))
+        self.net.load_state_dict(torch.load('9beta1.pth'))
         self.net.eval()
         for i_epoch in range(1):
             self.simulator.reset()
@@ -99,7 +104,7 @@ class Agent(object):
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
                     print(Q)
-                    action = np.argmax(Q)
+                    action = epsl_grd(Q,0.9)
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
                 newObs = self.simulator.imgProcess(newObs)

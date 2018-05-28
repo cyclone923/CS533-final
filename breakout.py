@@ -88,23 +88,23 @@ class Agent(object):
             batch_xNew[x] = i['newPhai']
         input1 = Variable(torch.FloatTensor(batch_x))
         input2 = Variable(torch.FloatTensor(batch_xNew))
-        output = self.net(input1)
-        y = output.cpu().data.numpy()
-        Qnew = self.net(input2).cpu().data.numpy()
+        output1 = self.net(input1)
+        output2 = self.net(input2)
+        y = output1.cpu().data.numpy()
+        Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
             a = sample[i]['a']
             if sample[i]['end'] == True:
                 y[i][a] = sample[i]['r']
             else:
                 y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        lable = Variable(torch.FloatTensor(y))
-        loss = self.criterion(output, lable)
+        loss = self.criterion(output1, Variable(torch.FloatTensor(y)))
         print(loss)
         loss.backward()
         self.optimizer.step()
 
     def train(self):
-        capacity = 1e6
+        capacity = 1e5
         memory = []
         batch_size = 32
         i_episode = 0
@@ -114,7 +114,7 @@ class Agent(object):
         self.net.train()
         while True:
             sys.stdout.flush()
-            if trainExamples - i_epoch * 1e5 >= 1e5:
+            if trainExamples - i_epoch * 1e4 >= 1e4:
                 print("Save Info after epoch: %d" % i_epoch)
                 torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + '.pth')
                 i_epoch += 1
@@ -135,7 +135,7 @@ class Agent(object):
             eval = 0
             action = 0
             while True:
-                self.simulator.env.render()
+                # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
