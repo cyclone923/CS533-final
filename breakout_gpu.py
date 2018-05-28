@@ -72,7 +72,7 @@ class Agent(object):
 
     def __init__(self, gameName):
         self.simulator = Sim(gameName)
-        self.beta = 1
+        self.beta = 0.6
         self.alpha = 0.001
         self.net = Net().cuda()
         self.criterion = torch.nn.MSELoss()
@@ -82,23 +82,32 @@ class Agent(object):
         batch_size = len(sample)
         batch_x = np.empty(shape=(batch_size, 4, 84, 84))
         batch_xNew = np.empty(shape=(batch_size, 4, 84, 84))
+        diff = np.zeros(shape=(batch_size, 4))
+        indicate = np.ones(shape=(batch_size, 4))
         for x, i in enumerate(sample):
             batch_x[x] = i['phai']
             batch_xNew[x] = i['newPhai']
-        input1 = Variable(torch.FloatTensor(batch_x)).cuda()
-        input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
+        input1 = Variable(torch.FloatTensor(batch_x).cuda())
+        input2 = Variable(torch.FloatTensor(batch_xNew).cuda())
         output1 = self.net(input1)
-        y = output1.cpu().data.numpy()
         output2 = self.net(input2)
+        # print(output1)
+        # print(output2)
+        # print(output1 + output2)
+        # exit(0)
         Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
             a = sample[i]['a']
             if sample[i]['end'] == True:
-                y[i][a] = sample[i]['r']
+                diff[i][a] = sample[i]['r']
+                indicate[i][a] = 0
             else:
-                y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        lable = Variable(torch.FloatTensor(y)).cuda()
-        loss = self.criterion(output1, lable)
+                diff[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
+                indicate[i][a] = 0
+        diff = torch.FloatTensor(diff).cuda()
+        indicate = torch.FloatTensor(indicate).cuda()
+        lable = output1.data * indicate + diff
+        loss = self.criterion(output1, Variable(lable))
         loss.backward()
         self.optimizer.step()
 
@@ -139,10 +148,11 @@ class Agent(object):
                 # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames)).cuda()
+                    input = Variable(torch.FloatTensor(frames).cuda())
                     out = self.net(input)
                     Q = out.cpu().data.numpy()
-                    print(Q)
+                    if step == 0:
+                        print(Q)
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0

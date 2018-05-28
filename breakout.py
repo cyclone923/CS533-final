@@ -97,12 +97,14 @@ class Agent(object):
                 y[i][a] = sample[i]['r']
             else:
                 y[i][a] = sample[i]['r'] + self.beta * max(Qnew[i])
-        loss = self.criterion(output, Variable(torch.FloatTensor(y)))
+        lable = Variable(torch.FloatTensor(y))
+        loss = self.criterion(output, lable)
+        print(loss)
         loss.backward()
         self.optimizer.step()
 
     def train(self):
-        capacity = 1e5
+        capacity = 1e6
         memory = []
         batch_size = 32
         i_episode = 0
@@ -112,7 +114,7 @@ class Agent(object):
         self.net.train()
         while True:
             sys.stdout.flush()
-            if trainExamples - i_epoch * 1e4 >= 1e4:
+            if trainExamples - i_epoch * 1e5 >= 1e5:
                 print("Save Info after epoch: %d" % i_epoch)
                 torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + '.pth')
                 i_epoch += 1
@@ -133,12 +135,12 @@ class Agent(object):
             eval = 0
             action = 0
             while True:
-                # self.simulator.env.render()
+                self.simulator.env.render()
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
-                    print(Q)
+                    # print(Q)
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
