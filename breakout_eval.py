@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 
@@ -28,10 +29,13 @@ class Sim(object):
     def imgProcess(self, rgb):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        shrink = cv2.resize(gray, (84, 110))
-        crop = shrink[16:16 + 84, :]
-        # plt.imshow(crop, cmap='gray')
-        return crop
+        crop1 = gray[5:16,:]
+        crop2 = gray[31:-18,:]
+        crop = np.concatenate((crop1,crop2))
+        pad = np.lib.pad(crop,((0,0),(6,6)),'edge')
+        shrink = cv2.resize(pad, (84, 84))
+        plt.imshow(shrink, cmap='gray')
+        return shrink
 
 
 class Net(torch.nn.Module):
@@ -81,7 +85,6 @@ class Agent(object):
     def eval(self):
 
         i_episode = 0
-        self.net.load_state_dict(torch.load('9beta1.pth'))
         self.net.eval()
         for i_epoch in range(1):
             self.simulator.reset()
@@ -104,7 +107,7 @@ class Agent(object):
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
                     print(Q)
-                    action = epsl_grd(Q,0.9)
+                    action = epsl_grd(Q,0.1)
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
                 newObs = self.simulator.imgProcess(newObs)

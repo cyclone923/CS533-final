@@ -6,8 +6,19 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import math
+import sys
 
+class Expr(object):
+
+    def __init__(self,phai,a,r,newPhai,done):
+        self.phai = phai
+        self.a = a
+        self.r = r
+        self.newPhai = newPhai
+        self.done = done
+
+    def __lt__(self, other):
+        return True
 
 class Sim(object):
 
@@ -29,10 +40,12 @@ class Sim(object):
     def imgProcess(self, rgb):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        shrink = cv2.resize(gray, (84, 110))
-        crop = shrink[16:16 + 84, :]
-        # plt.imshow(crop, cmap='gray')
-        return crop
+        crop1 = gray[5:16,:]
+        crop2 = gray[31:-18,:]
+        crop = np.concatenate((crop1,crop2))
+        pad = np.lib.pad(crop,((0,0),(6,6)),'edge')
+        shrink = cv2.resize(pad, (84, 84))
+        return shrink
 
 
 class Net(torch.nn.Module):
@@ -42,7 +55,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4, padding=0)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2, padding=0)
         self.fc1 = torch.nn.Linear(in_features=2592, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=3)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -63,9 +76,9 @@ class Net(torch.nn.Module):
 def epsl_grd(Q, epsl):
     rd = np.random.ranf()
     if rd < epsl:
-        return np.random.randint(Q.size) + 1
+        return np.random.randint(Q.size)
     else:
-        return np.argmax(Q) + 1
+        return np.argmax(Q)
 
 
 class Agent(object):
@@ -82,28 +95,24 @@ class Agent(object):
         batch_size = len(sample)
         batch_x = np.empty(shape=(batch_size, 4, 84, 84))
         batch_xNew = np.empty(shape=(batch_size, 4, 84, 84))
-        diff = np.zeros(shape=(batch_size, 3))
-        indicate = np.ones(shape=(batch_size, 3))
+        diff = np.zeros(shape=(batch_size, 4))
+        indicate = np.ones(shape=(batch_size, 4))
         for x, i in enumerate(sample):
-            batch_x[x] = i['phai']
-            batch_xNew[x] = i['newPhai']
-        input1 = Variable(torch.FloatTensor(batch_x).cuda())
-        input2 = Variable(torch.FloatTensor(batch_xNew).cuda())
+            batch_x[x] = i.phai
+            batch_xNew[x] = i.newPhai
+        input1 = Variable(torch.FloatTensor(batch_x)).cuda()
+        input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
         output1 = self.net(input1)
         output2 = self.net(input2)
-        # print(output1)
-        # print(output2)
-        # print(output1 + output2)
-        # exit(0)
         Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
-            a = sample[i]['a']
-            if sample[i]['end'] == True:
-                diff[i][a-1] = sample[i]['r']
-                indicate[i][a-1] = 0
+            a = sample[i].a
+            if sample[i].done == True:
+                diff[i][a] = sample[i].r
+                indicate[i][a] = 0
             else:
-                diff[i][a-1] = sample[i]['r'] + self.beta * max(Qnew[i])
-                indicate[i][a-1] = 0
+                diff[i][a] = sample[i].r + self.beta * max(Qnew[i])
+
         diff = torch.FloatTensor(diff).cuda()
         indicate = torch.FloatTensor(indicate).cuda()
         lable = output1.data * indicate + diff
@@ -121,11 +130,11 @@ class Agent(object):
         trainExamples = 0
         self.net.train()
         while True:
-            if trainExamples - i_epoch * 1e5 >= 1e5:
+            if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/cuda/' + str(i_epoch) + 'beta1.pth')
+                torch.save(self.net.state_dict(), 'netWeight/cuda/' + str(i_epoch) + 'betaB1.pth')
                 self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'beta1.pth')
+                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'betaB1.pth')
                 self.net.cuda()
                 i_epoch += 1
                 if i_epoch == 100:
@@ -134,7 +143,7 @@ class Agent(object):
             self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
+            frames = np.empty(shape=(1, 4, 84, 84),dtype=np.float32)  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
@@ -143,20 +152,21 @@ class Agent(object):
             step = 0
             eval = 0
             action = 0
-            newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
+            newFrames = np.empty(shape=(1, 4, 84, 84),dtype=np.float32)  # batch_size,channels,x,y
             while True:
                 # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames).cuda())
+                    input = Variable(torch.FloatTensor(frames)).cuda()
                     out = self.net(input)
                     Q = out.cpu().data.numpy()
                     if step == 0:
                         print(Q)
+                        print(sys.getsizeof(memory))
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
-                    newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
+                    newFrames = np.empty(shape=(1, 4, 84, 84),dtype=np.float32)  # batch_size,channels,x,y
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
@@ -166,17 +176,17 @@ class Agent(object):
 
                 if done:
                     while n < 3:
-                        print("padding end")
+                        # print("padding end")
                         n += 1
                         newFrames[0][n] = newObs
 
                 if n == 3:
-                    exprc = {'phai': frames, 'a': action, 'r': sumReward, 'newPhai': newFrames, 'end': done}
+                    exprc = Expr(frames,action,sumReward,newFrames,done)
                     memory.append(exprc)
                     if len(memory) > capacity:
                         memory.pop(0)
 
-                    if len(memory) >= batch_size:
+                    if len(memory) >= batch_size * 2:
                         sample = [i for i in random.sample(memory, batch_size)]
                         self.update(sample)
                     frames = newFrames
