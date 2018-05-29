@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import sys
 
 class Expr(object):
 
@@ -162,7 +161,6 @@ class Agent(object):
                     Q = out.cpu().data.numpy()
                     if step == 0:
                         print(Q)
-                        print(sys.getsizeof(memory))
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
