@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 class Expr(object):
 
@@ -39,10 +40,8 @@ class Sim(object):
     def imgProcess(self, rgb):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        crop1 = gray[4:17,:]
-        crop2 = gray[30:-17,:]
-        crop = np.concatenate((crop1,crop2))
-        # plt.imshow(pad,cmap='gray')
+        crop = gray[20:-30,:]
+        plt.imshow(crop,cmap='gray')
         return crop
 
 
@@ -52,8 +51,8 @@ class Net(torch.nn.Module):
         super(Net, self).__init__()
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=8, kernel_size=8, stride=4, padding=0)
         self.conv2 = torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=4, stride=2, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=5760, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc1 = torch.nn.Linear(in_features=5184, out_features=256)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -91,15 +90,15 @@ class Agent(object):
 
     def update(self, sample):
         batch_size = len(sample)
-        batch_x = np.empty(shape=(batch_size, 4, 176, 160))
-        batch_xNew = np.empty(shape=(batch_size, 4, 176, 160))
-        diff = np.zeros(shape=(batch_size, 4))
-        indicate = np.ones(shape=(batch_size, 4))
+        batch_x = np.empty(shape=(batch_size, 4, 160, 160))
+        batch_xNew = np.empty(shape=(batch_size, 4, 160, 160))
+        diff = np.zeros(shape=(batch_size, 18))
+        indicate = np.ones(shape=(batch_size, 18))
         for x, i in enumerate(sample):
             batch_x[x] = i.phai
             batch_xNew[x] = i.newPhai
-        input1 = Variable(torch.FloatTensor(batch_x)).cuda()
-        input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
+        input1 = Variable(torch.FloatTensor(batch_x))
+        input2 = Variable(torch.FloatTensor(batch_xNew))
         output1 = self.net(input1)
         output2 = self.net(input2)
         Qnew = output2.cpu().data.numpy()
@@ -111,8 +110,8 @@ class Agent(object):
             else:
                 diff[i][a] = sample[i].r + self.beta * max(Qnew[i])
 
-        diff = torch.FloatTensor(diff).cuda()
-        indicate = torch.FloatTensor(indicate).cuda()
+        diff = torch.FloatTensor(diff)
+        indicate = torch.FloatTensor(indicate)
         lable = output1.data * indicate + diff
         loss = self.criterion(output1, Variable(lable))
         loss.backward()
@@ -130,18 +129,15 @@ class Agent(object):
         while True:
             if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight2/cuda/' + str(i_epoch) + 'beta1.pth')
-                self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight2/cpu/' + str(i_epoch) + 'beta1.pth')
-                self.net.cuda()
+                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'beta1.pth')
                 i_epoch += 1
                 if i_epoch == 100:
                     break
             self.simulator.reset()
-            self.simulator.go(1)
+            # self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+            frames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
@@ -150,12 +146,12 @@ class Agent(object):
             step = 0
             eval = 0
             action = 0
-            newFrames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+            newFrames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
             while True:
-                # self.simulator.env.render()
+                self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames)).cuda()
+                    input = Variable(torch.FloatTensor(frames))
                     out = self.net(input)
                     Q = out.cpu().data.numpy()
                     if step == 0:
@@ -163,7 +159,7 @@ class Agent(object):
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
-                    newFrames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+                    newFrames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
@@ -204,7 +200,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("BreakoutNoFrameskip-v0")
+    agent = Agent("SeaquestNoFrameskip-v0")
     agent.train()
 
 # ACTION_MEANING = {

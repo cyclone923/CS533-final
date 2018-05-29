@@ -40,10 +40,8 @@ class Sim(object):
     def imgProcess(self, rgb):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        crop1 = gray[4:17,:]
-        crop2 = gray[30:-17,:]
-        crop = np.concatenate((crop1,crop2))
-        # plt.imshow(pad,cmap='gray')
+        crop = gray[20:-30,:]
+        plt.imshow(crop,cmap='gray')
         return crop
 
 
@@ -53,8 +51,8 @@ class Net(torch.nn.Module):
         super(Net, self).__init__()
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=8, kernel_size=8, stride=4, padding=0)
         self.conv2 = torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=4, stride=2, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=5760, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc1 = torch.nn.Linear(in_features=5184, out_features=256)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -92,10 +90,10 @@ class Agent(object):
 
     def update(self, sample):
         batch_size = len(sample)
-        batch_x = np.empty(shape=(batch_size, 4, 176, 160))
-        batch_xNew = np.empty(shape=(batch_size, 4, 176, 160))
-        diff = np.zeros(shape=(batch_size, 4))
-        indicate = np.ones(shape=(batch_size, 4))
+        batch_x = np.empty(shape=(batch_size, 4, 160, 160))
+        batch_xNew = np.empty(shape=(batch_size, 4, 160, 160))
+        diff = np.zeros(shape=(batch_size, 18))
+        indicate = np.ones(shape=(batch_size, 18))
         for x, i in enumerate(sample):
             batch_x[x] = i.phai
             batch_xNew[x] = i.newPhai
@@ -136,10 +134,10 @@ class Agent(object):
                 if i_epoch == 100:
                     break
             self.simulator.reset()
-            self.simulator.go(1)
+            # self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+            frames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
@@ -148,7 +146,7 @@ class Agent(object):
             step = 0
             eval = 0
             action = 0
-            newFrames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+            newFrames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
             while True:
                 self.simulator.env.render()
                 n = step % 4
@@ -161,7 +159,7 @@ class Agent(object):
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
-                    newFrames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+                    newFrames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
@@ -202,7 +200,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("BreakoutNoFrameskip-v0")
+    agent = Agent("SeaquestNoFrameskip-v0")
     agent.train()
 
 # ACTION_MEANING = {
