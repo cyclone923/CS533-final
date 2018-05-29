@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 class Expr(object):
 
@@ -39,10 +40,10 @@ class Sim(object):
     def imgProcess(self, rgb):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        crop1 = gray[4:17,:]
-        crop2 = gray[30:-17,:]
+        crop1 = gray[:17,8:-8]
+        crop2 = gray[30:-17,8:-8]
         crop = np.concatenate((crop1,crop2))
-        # plt.imshow(pad,cmap='gray')
+        # plt.imshow(crop,cmap='gray')
         return crop
 
 
@@ -50,9 +51,9 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=8, kernel_size=8, stride=4, padding=0)
-        self.conv2 = torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=4, stride=2, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=5760, out_features=256)
+        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=6, stride=6, padding=0)
+        self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=3, padding=0)
+        self.fc1 = torch.nn.Linear(in_features=2560, out_features=256)
         self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
 
     def forward(self, x):
@@ -91,8 +92,8 @@ class Agent(object):
 
     def update(self, sample):
         batch_size = len(sample)
-        batch_x = np.empty(shape=(batch_size, 4, 176, 160))
-        batch_xNew = np.empty(shape=(batch_size, 4, 176, 160))
+        batch_x = np.empty(shape=(batch_size, 4, 180, 144))
+        batch_xNew = np.empty(shape=(batch_size, 4, 180, 144))
         diff = np.zeros(shape=(batch_size, 4))
         indicate = np.ones(shape=(batch_size, 4))
         for x, i in enumerate(sample):
@@ -138,7 +139,7 @@ class Agent(object):
             self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+            frames = np.empty(shape=(1, 4, 180, 144),dtype=np.float32)  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
@@ -147,7 +148,7 @@ class Agent(object):
             step = 0
             eval = 0
             action = 0
-            newFrames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+            newFrames = np.empty(shape=(1, 4, 180, 144),dtype=np.float32)  # batch_size,channels,x,y
             while True:
                 # self.simulator.env.render()
                 n = step % 4
@@ -160,7 +161,7 @@ class Agent(object):
                     delta = 0.9 / capacity
                     action = epsl_grd(Q, 1 - delta * len(memory))
                     sumReward = 0
-                    newFrames = np.empty(shape=(1, 4, 176, 160),dtype=np.float32)  # batch_size,channels,x,y
+                    newFrames = np.empty(shape=(1, 4, 180, 144),dtype=np.float32)  # batch_size,channels,x,y
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward

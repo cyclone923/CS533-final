@@ -41,7 +41,7 @@ class Sim(object):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
         crop = gray[20:-30,:]
-        plt.imshow(crop,cmap='gray')
+        # plt.imshow(crop,cmap='gray')
         return crop
 
 
@@ -49,9 +49,9 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=8, kernel_size=8, stride=4, padding=0)
-        self.conv2 = torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=4, stride=2, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=5184, out_features=256)
+        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=8, padding=0)
+        self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=4, padding=0)
+        self.fc1 = torch.nn.Linear(in_features=800, out_features=256)
         self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):

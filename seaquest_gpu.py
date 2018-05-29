@@ -1,12 +1,10 @@
 from __future__ import division
 import gym
-import cv2
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import matplotlib.pyplot as plt
 
 class Expr(object):
 
@@ -41,7 +39,6 @@ class Sim(object):
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
         crop = gray[20:-30,:]
-        plt.imshow(crop,cmap='gray')
         return crop
 
 
@@ -49,9 +46,9 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=8, kernel_size=8, stride=4, padding=0)
-        self.conv2 = torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=4, stride=2, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=5184, out_features=256)
+        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=8, padding=0)
+        self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=4, padding=0)
+        self.fc1 = torch.nn.Linear(in_features=800, out_features=256)
         self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
@@ -97,8 +94,8 @@ class Agent(object):
         for x, i in enumerate(sample):
             batch_x[x] = i.phai
             batch_xNew[x] = i.newPhai
-        input1 = Variable(torch.FloatTensor(batch_x))
-        input2 = Variable(torch.FloatTensor(batch_xNew))
+        input1 = Variable(torch.FloatTensor(batch_x)).cuda()
+        input2 = Variable(torch.FloatTensor(batch_xNew)).cuda()
         output1 = self.net(input1)
         output2 = self.net(input2)
         Qnew = output2.cpu().data.numpy()
@@ -110,15 +107,15 @@ class Agent(object):
             else:
                 diff[i][a] = sample[i].r + self.beta * max(Qnew[i])
 
-        diff = torch.FloatTensor(diff)
-        indicate = torch.FloatTensor(indicate)
+        diff = torch.FloatTensor(diff).cuda()
+        indicate = torch.FloatTensor(indicate).cuda()
         lable = output1.data * indicate + diff
         loss = self.criterion(output1, Variable(lable))
         loss.backward()
         self.optimizer.step()
 
     def train(self):
-        capacity = 1e5
+        capacity = 3e5
         memory = []
         batch_size = 32
         i_episode = 0
@@ -129,7 +126,10 @@ class Agent(object):
         while True:
             if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/cpu/' + str(i_epoch) + 'beta1.pth')
+                torch.save(self.net.state_dict(), 'netWeight/seaquest/cuda/' + str(i_epoch) + 'beta1.pth')
+                self.net.cpu()
+                torch.save(self.net.state_dict(), 'netWeight/seaquest/cpu/' + str(i_epoch) + 'beta1.pth')
+                self.net.cuda()
                 i_epoch += 1
                 if i_epoch == 100:
                     break
@@ -148,10 +148,10 @@ class Agent(object):
             action = 0
             newFrames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
             while True:
-                self.simulator.env.render()
+                # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames))
+                    input = Variable(torch.FloatTensor(frames)).cuda()
                     out = self.net(input)
                     Q = out.cpu().data.numpy()
                     if step == 0:
