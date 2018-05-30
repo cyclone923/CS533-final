@@ -49,14 +49,23 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=8, padding=0)
-        self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=4, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=800, out_features=256)
+        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=8, kernel_size=3, stride=1, padding=1)
+        self.conv2 = torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=1)
+        self.conv3 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv4 = torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.pool = torch.nn.MaxPool2d(2, 2)
+        self.fc1 = torch.nn.Linear(in_features=6400, out_features=256)
         self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
+        x = self.pool(x)
         x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        x = F.relu(self.conv3(x))
+        x = self.pool(x)
+        x = F.relu(self.conv4(x))
+        x = self.pool(x)
         x = x.view(-1, self.num_flat_features(x))
         x = self.fc1(x)
         x = self.fc2(x)
@@ -148,7 +157,7 @@ class Agent(object):
             action = 0
             newFrames = np.empty(shape=(1, 4, 160, 160),dtype=np.float32)  # batch_size,channels,x,y
             while True:
-                self.simulator.env.render()
+                # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
                     input = Variable(torch.FloatTensor(frames))
