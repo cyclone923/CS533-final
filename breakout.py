@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import matplotlib.pyplot as plt
+
 
 class Expr(object):
 
@@ -117,6 +117,7 @@ class Agent(object):
 
     def train(self):
         capacity = 1e6
+        final_expr_frame = 1e6
         replay_start = 5e4
         memory = []
         batch_size = 32
@@ -126,9 +127,9 @@ class Agent(object):
         trainExamples = 0
         self.net.train()
         while True:
-            if trainExamples - i_epoch * capacity >= capacity:
+            if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + 'beta1.pth')
+                torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + '.pth')
                 i_epoch += 1
                 if i_epoch == 100:
                     break
@@ -155,8 +156,12 @@ class Agent(object):
                     Q = out.cpu().data.numpy()
                     if step == 0:
                         print(Q)
-                    delta = 0.9 / capacity
-                    action = epsl_grd(Q, 1 - delta * len(memory))
+                    if trainExamples >= final_expr_frame:
+                        epsl = 0.1
+                    else:
+                        delta = 0.9 / final_expr_frame
+                        epsl =  1 - delta * trainExamples
+                    action = epsl_grd(Q, epsl)
                     sumReward = 0
                     newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
 
@@ -181,8 +186,8 @@ class Agent(object):
                     if len(memory) >= replay_start:
                         sample = [i for i in random.sample(memory, batch_size)]
                         self.update(sample)
+                        trainExamples += 1
                     frames = newFrames
-                    trainExamples += 1
 
                 step += 1
 
