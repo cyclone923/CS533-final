@@ -137,7 +137,6 @@ class Agent(object):
                 if i_epoch == 100:
                     break
             self.simulator.reset()
-            self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
             frames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
