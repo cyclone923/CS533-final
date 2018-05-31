@@ -79,6 +79,13 @@ def epsl_grd(Q, epsl):
     else:
         return np.argmax(Q)
 
+def refresh(old,obs):
+    new = np.empty(shape=(1, 4, 105, 80),dtype=np.uint8)
+    new[0][3] = old[0][2]
+    new[0][2] = old[0][1]
+    new[0][1] = old[0][0]
+    new[0][0] = obs
+    return new
 
 class Agent(object):
 
@@ -96,13 +103,13 @@ class Agent(object):
 
     def update(self, sample):
         batch_size = len(sample)
-        batch_x = np.empty(shape=(batch_size, 4, 105, 80))
-        batch_xNew = np.empty(shape=(batch_size, 4, 105, 80))
+        batch_x = np.empty(shape=(batch_size, 4, 105, 80),dtype=np.uint8)
+        batch_xNew = np.empty(shape=(batch_size, 4, 105, 80),dtype=np.uint8)
         for x, i in enumerate(sample):
             batch_x[x] = i.phai
             batch_xNew[x] = i.newPhai
-        mask = np.zeros(shape=(batch_size, self.simulator.actionSpace()))
-        label = np.zeros(shape=(batch_size, self.simulator.actionSpace()))
+        mask = np.zeros(shape=(batch_size, self.simulator.actionSpace()),dtype=np.uint8)
+        label = np.zeros(shape=(batch_size, self.simulator.actionSpace()),dtype=np.uint8)
 
         input2 = Variable(torch.FloatTensor(batch_xNew))
         if self.gpu:
@@ -161,58 +168,39 @@ class Agent(object):
             sumReward = 0
             step = 0
             eval = 0
-            action = 0
-            newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.uint8)  # batch_size,channels,x,y
             while True:
-                # self.simulator.env.render()
                 n = step % 4
-                if n == 0:
-                    input = Variable(torch.FloatTensor(frames))
-                    if self.gpu:
-                        input = input.cuda()
-                    out = self.net(input)
-                    Q = out.cpu().data.numpy()
-                    if step == 4:
-                        print(Q)
-                    if trainExamples >= final_expr_frame:
-                        epsl = 0.1
-                    else:
-                        delta = 0.9 / final_expr_frame
-                        epsl =  1 - delta * trainExamples
-                    action = epsl_grd(Q, epsl)
-                    sumReward = 0
-                    newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.uint8)  # batch_size,channels,x,y
+                # self.simulator.env.render()
+                input = Variable(torch.FloatTensor(frames))
+                if self.gpu:
+                    input = input.cuda()
+                out = self.net(input)
+                Q = out.cpu().data.numpy()
+                if step == 0:
+                    print(Q)
+                if trainExamples >= final_expr_frame:
+                    epsl = 0.1
+                else:
+                    delta = 0.9 / final_expr_frame
+                    epsl =  1 - delta * trainExamples
 
-
-
+                action = epsl_grd(Q, epsl)
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
-                sumReward += np.sign(reward)  # scale the reward for all games
+                reward = np.sign(reward)  # scale the reward for all games
                 newObs = self.simulator.imgProcess(newObs)
-                newFrames[0][n] = newObs
+                newFrames = refresh(frames,newObs)
+                exprc = Expr(frames,action,sumReward,newFrames,done)
+                memory.append(exprc)
+                if len(memory) > capacity:
+                    memory.pop(0)
 
-                if done:
-                    while n < 3:
-                        # print("padding end")
-                        n += 1
-                        newFrames[0][n] = newObs
-
-                if n == 3:
-                    if step > 3:
-                        exprc = Expr(frames,action,sumReward,newFrames,done)
-                        memory.append(exprc)
-                        if len(memory) > capacity:
-                            memory.pop(0)
-
-                        if len(memory) >= replay_start:
-                            sample = [i for i in random.sample(memory, batch_size)]
-                            self.update(sample)
-                            trainExamples += 1
-
-                    frames = newFrames
-
+                if n % 4 == 0:
+                    if len(memory) >= replay_start:
+                        sample = [i for i in random.sample(memory, batch_size)]
+                        self.update(sample)
+                        trainExamples += 1
                 step += 1
-
                 if done:
                     total_frame += step
                     print("Episode finished after %d timesteps" % step)
@@ -223,7 +211,7 @@ class Agent(object):
                     print("")
                     i_episode += 1
                     break
-
+                frames = newFrames
 
 if __name__ == "__main__":
     agent = Agent("BreakoutDeterministic-v4",gpu=True)
