@@ -27,15 +27,12 @@ class Sim(object):
             self.env.render()
 
     def imgProcess(self, rgb):
-        r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
-        gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
-        crop1 = gray[5:16,:]
-        crop2 = gray[31:-18,:]
-        crop = np.concatenate((crop1,crop2))
-        pad = np.lib.pad(crop,((0,0),(6,6)),'edge')
-        shrink = cv2.resize(pad, (84, 84))
-        plt.imshow(shrink, cmap='gray')
-        return shrink
+        gray = np.mean(rgb, axis=2).astype(np.uint8)
+        downsample = gray[::2,::2]
+        # plt.imshow(downsample,cmap='gray')
+        return downsample
+
+
 
 
 class Net(torch.nn.Module):
@@ -44,8 +41,8 @@ class Net(torch.nn.Module):
         super(Net, self).__init__()
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4, padding=0)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2, padding=0)
-        self.fc1 = torch.nn.Linear(in_features=2592, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=3)
+        self.fc1 = torch.nn.Linear(in_features=2816, out_features=256)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -67,19 +64,16 @@ class Net(torch.nn.Module):
 def epsl_grd(Q, epsl):
     rd = np.random.ranf()
     if rd < epsl:
-        return np.random.randint(Q.size) + 1
+        return np.random.randint(Q.size)
     else:
-        return np.argmax(Q) + 1
+        return np.argmax(Q)
 
 class Agent(object):
 
     def __init__(self, gameName):
         self.simulator = Sim(gameName)
-        self.beta = 1
-        self.alpha = 0.001
         self.net = Net()
-        self.criterion = torch.nn.MSELoss()
-        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.9)
+        self.net.load_state_dict(torch.load('26.pth'))
 
 
     def eval(self):
@@ -88,15 +82,14 @@ class Agent(object):
         self.net.eval()
         for i_epoch in range(1):
             self.simulator.reset()
-            self.simulator.go(1)
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
+            frames = np.empty(shape=(1, 4, 105, 80))  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
             frames[0][3] = obs
-            newFrames = np.empty(shape=(1, 4, 84, 84))  # batch_size,channels,x,y
+            newFrames = np.empty(shape=(1, 4, 105, 80))  # batch_size,channels,x,y
             step = 0
             eval = 0
             action = 0
@@ -107,7 +100,7 @@ class Agent(object):
                     input = Variable(torch.FloatTensor(frames))
                     Q = self.net(input).cpu().data.numpy()
                     print(Q)
-                    action = epsl_grd(Q,0.1)
+                    action = epsl_grd(Q,0.5)
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
                 newObs = self.simulator.imgProcess(newObs)
