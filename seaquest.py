@@ -148,7 +148,7 @@ class Agent(object):
         memory = []
         self.net.train()
         while True:
-            if trainExamples - i_epoch * capacity/10 >= capacity/10:
+            if total_frame - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
                 torch.save(self.net.state_dict(), 'netWeight/seaquest/cuda/' + str(i_epoch) + '.pth')
                 self.net.cpu()
@@ -177,11 +177,11 @@ class Agent(object):
                 Q = out.cpu().data.numpy()
                 if step == 0:
                     print(Q)
-                if trainExamples >= final_expr_frame:
+                if total_frame >= final_expr_frame:
                     epsl = 0.1
                 else:
                     delta = 0.9 / final_expr_frame
-                    epsl =  1 - delta * trainExamples
+                    epsl =  1 - delta * total_frame
 
                 action = epsl_grd(Q, epsl)
                 newObs, reward, done, _ = self.simulator.go(action)
