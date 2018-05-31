@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import random
-import matplotlib.pyplot as plt
 
 
 class Expr(object):
@@ -37,10 +36,14 @@ class Sim(object):
         else:
             self.env.render()
 
+    def actionSpace(self):
+        a = self.env.action_space.n
+        return a
+
     def imgProcess(self, rgb):
         gray = np.mean(rgb, axis=2).astype(np.uint8)
         downsample = gray[::2,::2]
-        plt.imshow(downsample,cmap='gray')
+        # plt.imshow(downsample,cmap='gray')
         return downsample
 
 
@@ -51,7 +54,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2)
         self.fc1 = torch.nn.Linear(in_features=2816, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -79,40 +82,50 @@ def epsl_grd(Q, epsl):
 
 class Agent(object):
 
-    def __init__(self, gameName):
+    def __init__(self, gameName, gpu):
+        self.gpu = gpu
         self.simulator = Sim(gameName)
         self.beta = 0.99
         self.alpha = 0.00025
         self.net = Net()
+        if self.gpu:
+            self.net.cuda()
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.95, momentum=0.95, eps=0.01)
+
 
     def update(self, sample):
         batch_size = len(sample)
         batch_x = np.empty(shape=(batch_size, 4, 105, 80))
         batch_xNew = np.empty(shape=(batch_size, 4, 105, 80))
-        diff = np.zeros(shape=(batch_size, 4))
-        indicate = np.ones(shape=(batch_size, 4))
         for x, i in enumerate(sample):
             batch_x[x] = i.phai
             batch_xNew[x] = i.newPhai
-        input1 = Variable(torch.FloatTensor(batch_x))
+        mask = np.zeros(shape=(batch_size, self.simulator.actionSpace()))
+        label = np.zeros(shape=(batch_size, self.simulator.actionSpace()))
+
         input2 = Variable(torch.FloatTensor(batch_xNew))
-        output1 = self.net(input1)
+        if self.gpu:
+            input2 = input2.cuda()
         output2 = self.net(input2)
         Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
             a = sample[i].a
+            mask[i][a] = 1
             if sample[i].done == True:
-                diff[i][a] = sample[i].r
-                indicate[i][a] = 0
+                label[i][a] = sample[i].r
             else:
-                diff[i][a] = sample[i].r + self.beta * max(Qnew[i])
+                label[i][a] = sample[i].r + self.beta * max(Qnew[i])
 
-        diff = torch.FloatTensor(diff)
-        indicate = torch.FloatTensor(indicate)
-        lable = output1.data * indicate + diff
-        loss = self.criterion(output1, Variable(lable))
+        input1 = Variable(torch.FloatTensor(batch_x))
+        label = Variable(torch.FloatTensor(label))
+        mask = Variable(torch.FloatTensor(mask))
+        if self.gpu:
+            input1 = input1.cuda()
+            mask = mask.cuda()
+            label = label.cuda()
+        output1 = self.net(input1) * mask
+        loss = self.criterion(output1, label)
         loss.backward()
         self.optimizer.step()
 
@@ -120,50 +133,57 @@ class Agent(object):
         capacity = 1e6
         final_expr_frame = 1e6
         replay_start = 5e4
-        memory = []
         batch_size = 32
-        i_episode = 0
         total_frame = 0
         i_epoch = 0
+        i_episode = 0
         trainExamples = 0
+        memory = []
         self.net.train()
         while True:
             if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/seaquest/cpu/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + '.pth')
                 i_epoch += 1
                 if i_epoch == 100:
                     break
             self.simulator.reset()
-            obs = self.simulator.render(RGB=True)
-            obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
-            frames[0][0] = obs
-            frames[0][1] = obs
-            frames[0][2] = obs
-            frames[0][3] = obs
-            sumReward = 0
             step = 0
             eval = 0
-            action = 0
+            noMovCnt = 0
             newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
             while True:
                 # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    input = Variable(torch.FloatTensor(frames))
-                    out = self.net(input)
-                    Q = out.cpu().data.numpy()
-                    if step == 0:
-                        print(Q)
-                    if trainExamples >= final_expr_frame:
-                        epsl = 0.1
+                    if step > 3:
+                        input = Variable(torch.FloatTensor(frames))
+                        if self.gpu:
+                            input = input.cuda()
+                        out = self.net(input)
+                        Q = out.cpu().data.numpy()
+                        if step == 4:
+                            print(Q)
+                        if trainExamples >= final_expr_frame:
+                            epsl = 0.1
+                        else:
+                            delta = 0.9 / final_expr_frame
+                            epsl =  1 - delta * trainExamples
+                        action = epsl_grd(Q, epsl)
                     else:
-                        delta = 0.9 / final_expr_frame
-                        epsl =  1 - delta * trainExamples
-                    action = epsl_grd(Q, epsl)
+                        action = np.random.randint(self.simulator.actionSpace())
+
                     sumReward = 0
                     newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
+
+
+                if action == 0:
+                    noMovCnt += 1
+                    if noMovCnt > 30:
+                        action = np.random.randint(self.simulator.actionSpace())
+                        noMovCnt = 0
+                else:
+                    noMovCnt = 0
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
@@ -178,17 +198,18 @@ class Agent(object):
                         newFrames[0][n] = newObs
 
                 if n == 3:
-                    exprc = Expr(frames,action,sumReward,newFrames,done)
-                    memory.append(exprc)
-                    if len(memory) > capacity:
-                        memory.pop(0)
+                    if step > 3:
+                        exprc = Expr(frames,action,sumReward,newFrames,done)
+                        memory.append(exprc)
+                        if len(memory) > capacity:
+                            memory.pop(0)
 
-                    if len(memory) >= replay_start:
-                        sample = [i for i in random.sample(memory, batch_size)]
-                        self.update(sample)
-                        trainExamples += 1
+                        if len(memory) >= replay_start:
+                            sample = [i for i in random.sample(memory, batch_size)]
+                            self.update(sample)
+                            trainExamples += 1
+
                     frames = newFrames
-
 
                 step += 1
 
@@ -205,7 +226,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("SeaquestNoFrameskip-v0")
+    agent = Agent("SeaquestNoFrameskip-v0",gpu=False)
     agent.train()
 
 # ACTION_MEANING = {
