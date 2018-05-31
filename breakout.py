@@ -54,7 +54,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2)
         self.fc1 = torch.nn.Linear(in_features=2816, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -148,42 +148,39 @@ class Agent(object):
                 if i_epoch == 100:
                     break
             self.simulator.reset()
+            obs = self.simulator.render(RGB=True)
+            obs = self.simulator.imgProcess(obs)
+            frames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
+            frames[0][0] = obs
+            frames[0][1] = obs
+            frames[0][2] = obs
+            frames[0][3] = obs
+            sumReward = 0
             step = 0
             eval = 0
-            noMovCnt = 0
+            action = 0
             newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
             while True:
                 # self.simulator.env.render()
                 n = step % 4
                 if n == 0:
-                    if step > 3:
-                        input = Variable(torch.FloatTensor(frames))
-                        if self.gpu:
-                            input = input.cuda()
-                        out = self.net(input)
-                        Q = out.cpu().data.numpy()
-                        if step == 4:
-                            print(Q)
-                        if trainExamples >= final_expr_frame:
-                            epsl = 0.1
-                        else:
-                            delta = 0.9 / final_expr_frame
-                            epsl =  1 - delta * trainExamples
-                        action = epsl_grd(Q, epsl)
+                    input = Variable(torch.FloatTensor(frames))
+                    if self.gpu:
+                        input = input.cuda()
+                    out = self.net(input)
+                    Q = out.cpu().data.numpy()
+                    if step == 4:
+                        print(Q)
+                    if trainExamples >= final_expr_frame:
+                        epsl = 0.1
                     else:
-                        action = np.random.randint(self.simulator.actionSpace())
-
+                        delta = 0.9 / final_expr_frame
+                        epsl =  1 - delta * trainExamples
+                    action = epsl_grd(Q, epsl)
                     sumReward = 0
                     newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
 
 
-                if action == 0:
-                    noMovCnt += 1
-                    if noMovCnt > 30:
-                        action = np.random.randint(self.simulator.actionSpace())
-                        noMovCnt = 0
-                else:
-                    noMovCnt = 0
 
                 newObs, reward, done, _ = self.simulator.go(action)
                 eval += reward
@@ -226,7 +223,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("BreakoutNoFrameskip-v0",gpu=False)
+    agent = Agent("SeaquestDeterministic-v4",gpu=False)
     agent.train()
 
 # ACTION_MEANING = {
