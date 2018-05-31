@@ -54,7 +54,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2)
         self.fc1 = torch.nn.Linear(in_features=2816, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -143,14 +143,17 @@ class Agent(object):
         while True:
             if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
+                torch.save(self.net.state_dict(), 'netWeight/breakout/cuda/' + str(i_epoch) + '.pth')
+                self.net.cpu()
                 torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + '.pth')
+                self.net.cuda()
                 i_epoch += 1
                 if i_epoch == 100:
                     break
             self.simulator.reset()
             obs = self.simulator.render(RGB=True)
             obs = self.simulator.imgProcess(obs)
-            frames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
+            frames = np.empty(shape=(1, 4, 105, 80),dtype=np.uint8)  # batch_size,channels,x,y
             frames[0][0] = obs
             frames[0][1] = obs
             frames[0][2] = obs
@@ -159,7 +162,7 @@ class Agent(object):
             step = 0
             eval = 0
             action = 0
-            newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
+            newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.uint8)  # batch_size,channels,x,y
             while True:
                 # self.simulator.env.render()
                 n = step % 4
@@ -178,7 +181,7 @@ class Agent(object):
                         epsl =  1 - delta * trainExamples
                     action = epsl_grd(Q, epsl)
                     sumReward = 0
-                    newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.float32)  # batch_size,channels,x,y
+                    newFrames = np.empty(shape=(1, 4, 105, 80),dtype=np.uint8)  # batch_size,channels,x,y
 
 
 
@@ -223,7 +226,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("SeaquestDeterministic-v4",gpu=False)
+    agent = Agent("BreakoutDeterministic-v4",gpu=True)
     agent.train()
 
 # ACTION_MEANING = {
