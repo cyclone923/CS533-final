@@ -54,7 +54,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2)
         self.fc1 = torch.nn.Linear(in_features=2816, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=9)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -145,14 +145,14 @@ class Agent(object):
         i_epoch = 0
         i_episode = 0
         trainExamples = 0
-        memory = []
+        memory = [None] * int(capacity)
         self.net.train()
         while True:
-            if total_frame - i_epoch * capacity/10 >= capacity/10:
+            if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/seaquest/cuda/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/pacman/cuda/' + str(i_epoch) + '.pth')
                 self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight/seaquest/cpu/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/pacman/cpu/' + str(i_epoch) + '.pth')
                 self.net.cuda()
                 i_epoch += 1
                 if i_epoch == 100:
@@ -177,11 +177,11 @@ class Agent(object):
                 Q = out.cpu().data.numpy()
                 if step == 0:
                     print(Q)
-                if total_frame >= final_expr_frame:
+                if trainExamples >= final_expr_frame:
                     epsl = 0.1
                 else:
                     delta = 0.9 / final_expr_frame
-                    epsl =  1 - delta * total_frame
+                    epsl =  1 - delta * trainExamples
 
                 action = epsl_grd(Q, epsl)
                 newObs, reward, done, _ = self.simulator.go(action)
@@ -190,22 +190,21 @@ class Agent(object):
                 newObs = self.simulator.imgProcess(newObs)
                 newFrames = refresh(frames,newObs)
                 exprc = Expr(frames,action,reward,newFrames,done)
-                memory.append(exprc)
-                if len(memory) > capacity:
-                    memory.pop(0)
-
-                if n % 4 == 0:
-                    if len(memory) >= replay_start:
+                idx = int(total_frame % capacity)
+                memory[idx] = exprc
+                total_frame += 1
+                if total_frame >= replay_start:
+                    if total_frame > 1e6:
                         sample = [i for i in random.sample(memory, batch_size)]
-                        self.update(sample)
-                        trainExamples += 1
+                    else:
+                        sample = [i for i in random.sample(memory[:total_frame], batch_size)]
+                    self.update(sample)
+                    trainExamples += 1
                 step += 1
                 if done:
-                    total_frame += step
                     print("Episode finished after %d timesteps" % step)
                     print("Frames trained: %d" % trainExamples)
                     print("Frames created: %d" % total_frame)
-                    print("Memory length: %d" % len(memory))
                     print("Score in %d episode: %d" % (i_episode, eval))
                     print("")
                     i_episode += 1
@@ -213,7 +212,7 @@ class Agent(object):
                 frames = newFrames
 
 if __name__ == "__main__":
-    agent = Agent("SeaquestDeterministic-v4",gpu=True)
+    agent = Agent("MsPacmanDeterministic-v4",gpu=True)
     agent.train()
 
 # ACTION_MEANING = {

@@ -145,10 +145,10 @@ class Agent(object):
         i_epoch = 0
         i_episode = 0
         trainExamples = 0
-        memory = []
+        memory = [None] * int(capacity)
         self.net.train()
         while True:
-            if total_frame - i_epoch * capacity/10 >= capacity/10:
+            if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
                 torch.save(self.net.state_dict(), 'netWeight/amidar/cuda/' + str(i_epoch) + '.pth')
                 self.net.cpu()
@@ -177,11 +177,11 @@ class Agent(object):
                 Q = out.cpu().data.numpy()
                 if step == 0:
                     print(Q)
-                if total_frame >= final_expr_frame:
+                if trainExamples >= final_expr_frame:
                     epsl = 0.1
                 else:
                     delta = 0.9 / final_expr_frame
-                    epsl =  1 - delta * total_frame
+                    epsl =  1 - delta * trainExamples
 
                 action = epsl_grd(Q, epsl)
                 newObs, reward, done, _ = self.simulator.go(action)
@@ -190,22 +190,21 @@ class Agent(object):
                 newObs = self.simulator.imgProcess(newObs)
                 newFrames = refresh(frames,newObs)
                 exprc = Expr(frames,action,reward,newFrames,done)
-                memory.append(exprc)
-                if len(memory) > capacity:
-                    memory.pop(0)
-
-                if n % 4 == 0:
-                    if len(memory) >= replay_start:
+                idx = int(total_frame % capacity)
+                memory[idx] = exprc
+                total_frame += 1
+                if total_frame >= replay_start:
+                    if total_frame > 1e6:
                         sample = [i for i in random.sample(memory, batch_size)]
-                        self.update(sample)
-                        trainExamples += 1
+                    else:
+                        sample = [i for i in random.sample(memory[:total_frame], batch_size)]
+                    self.update(sample)
+                    trainExamples += 1
                 step += 1
                 if done:
-                    total_frame += step
                     print("Episode finished after %d timesteps" % step)
                     print("Frames trained: %d" % trainExamples)
                     print("Frames created: %d" % total_frame)
-                    print("Memory length: %d" % len(memory))
                     print("Score in %d episode: %d" % (i_episode, eval))
                     print("")
                     i_episode += 1
