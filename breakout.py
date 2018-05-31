@@ -165,7 +165,6 @@ class Agent(object):
             frames[0][1] = obs
             frames[0][2] = obs
             frames[0][3] = obs
-            sumReward = 0
             step = 0
             eval = 0
             while True:
@@ -190,7 +189,7 @@ class Agent(object):
                 reward = np.sign(reward)  # scale the reward for all games
                 newObs = self.simulator.imgProcess(newObs)
                 newFrames = refresh(frames,newObs)
-                exprc = Expr(frames,action,sumReward,newFrames,done)
+                exprc = Expr(frames,action,reward,newFrames,done)
                 memory.append(exprc)
                 if len(memory) > capacity:
                     memory.pop(0)
