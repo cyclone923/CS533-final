@@ -54,7 +54,7 @@ class Net(torch.nn.Module):
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
         self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2)
         self.fc1 = torch.nn.Linear(in_features=2816, out_features=256)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=4)
+        self.fc2 = torch.nn.Linear(in_features=256, out_features=18)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -143,9 +143,9 @@ class Agent(object):
         while True:
             if trainExamples - i_epoch * capacity/10 >= capacity/10:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/breakout/cuda/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/seaquest/cuda/' + str(i_epoch) + '.pth')
                 self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/seaquest/cpu/' + str(i_epoch) + '.pth')
                 self.net.cuda()
                 i_epoch += 1
                 if i_epoch == 100:
@@ -226,7 +226,7 @@ class Agent(object):
 
 
 if __name__ == "__main__":
-    agent = Agent("BreakoutDeterministic-v4",gpu=True)
+    agent = Agent("SeaquestDeterministic-v4",gpu=True)
     agent.train()
 
 # ACTION_MEANING = {
