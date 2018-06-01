@@ -24,6 +24,7 @@ class Sim(object):
     def __init__(self, envName):
         self.env = gym.make(envName)
 
+
     def reset(self):
         self.env.reset()
 
