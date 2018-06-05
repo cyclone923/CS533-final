@@ -6,7 +6,7 @@ from torch.autograd import Variable
 import numpy as np
 import random
 from PIL import Image
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
 
@@ -62,11 +62,6 @@ class Sim(object):
 
     def reset(self):
         self.env.reset()
-        obs, _, _, _ = self.env.step(3)
-        obs, _, _, _ = self.env.step(3)
-        obs, _, _, _ = self.env.step(3)
-        obs, _, _, _ = self.env.step(3)
-        obs, _, _, _ = self.env.step(3)
         obs, _, _, _ = self.env.step(1)
         self.live = self.getlive(obs)
 
@@ -99,20 +94,20 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
-        self.conv2 = torch.nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=2)
-        # self.conv3 = torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
-        self.fc1 = torch.nn.Linear(in_features=2592, out_features=256)
-        # self.bn = torch.nn.BatchNorm1d(512)
-        self.fc2 = torch.nn.Linear(in_features=256, out_features=3)
+        self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=32, kernel_size=8, stride=4)
+        self.conv2 = torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2)
+        self.conv3 = torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
+        self.fc1 = torch.nn.Linear(in_features=3136, out_features=512)
+        self.bn = torch.nn.BatchNorm1d(512)
+        self.fc2 = torch.nn.Linear(in_features=512, out_features=3)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
-        # x = F.relu(self.conv3(x))
+        x = F.relu(self.conv3(x))
         x = x.view(-1, self.num_flat_features(x))
         x = self.fc1(x)
-        # x = self.bn(x)
+        x = self.bn(x)
         x = F.relu(x)
         x = self.fc2(x)
         return x
@@ -129,30 +124,26 @@ class Net(torch.nn.Module):
 class Agent(object):
 
     def __init__(self, gameName):
-        self.EPSL_INT = 0.5
+        self.EPSL_INT = 1
         self.EPSL_END = 0.1
-        self.DECAY_L = 1e5
+        self.DECAY_L = 1e6
         self.EPSL_DECAY = (self.EPSL_INT - self.EPSL_END) / self.DECAY_L
-        self.MEM_CAP = 1e5
+        self.MEM_CAP = 1e6
         self.REPLAY_START = 100
-        self.EPOCH_L = 5e3
+        self.EPOCH_L = 5e4
         self.BATCH_SIZE = 32
-        self.TAR_CHANGE = 1e3
         # self.MAX_NO_MOVE = 2
         self.simulator = Sim(gameName)
         self.num_action = self.simulator.actionSpace()
-        self.beta = 1
+        self.beta = 0.99
         self.alpha = 0.0001
         self.net = Net()
-        self.tar = Net()
-        self.tar.load_state_dict(self.net.state_dict())
-        self.criterion = torch.nn.SmoothL1Loss()
+        self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.95, momentum=0.95, eps=0.01)
         self.gpu = torch.cuda.is_available()
         self.begin = False
         if self.gpu:
             self.net.cuda()
-            self.tar.cuda()
 
 
     def epsl_action(self, phai, step):
@@ -192,7 +183,7 @@ class Agent(object):
         input2 = Variable(torch.FloatTensor(batch_xNew))
         if self.gpu:
             input2 = input2.cuda()
-        output2 = self.tar(input2)
+        output2 = self.net(input2)
         Qnew = output2.cpu().data.numpy()
         for i in range(batch_size):
             a = sample[i].a
@@ -223,6 +214,11 @@ class Agent(object):
         self.net.train()
         while True:
             if train_cnt - i_epoch * self.EPOCH_L >= self.EPOCH_L:
+                print("Save Info after epoch: %d" % i_epoch)
+                torch.save(self.net.state_dict(), 'netWeight/breakout/cuda/' + str(i_epoch) + '.pth')
+                self.net.cpu()
+                torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + '.pth')
+                self.net.cuda()
                 i_epoch += 1
                 if i_epoch == num_epoch:
                     break
@@ -238,7 +234,7 @@ class Agent(object):
                 _, _, _ = self.simulator.go(action)
             self.begin = True
             while True:
-                self.simulator.env.render()
+                # self.simulator.env.render()
 
                 action = self.epsl_action(frame,train_cnt)
 
@@ -246,21 +242,19 @@ class Agent(object):
                 newFrame = np.concatenate((np.resize(newObs,new_shape=(1,84,84)),frame[:3,:,:]),axis=0)
                 sumR += reward
                 reward = np.sign(reward)  # scale the reward for all games
+
                 buffer.store(frame,action,reward,newFrame,done)
                 if buffer.ele >= self.REPLAY_START:
                     sample = buffer.sample(self.BATCH_SIZE)
                     self.update(sample)
                     train_cnt += 1
-                    if train_cnt % self.TAR_CHANGE == 0:
-                        print('Change Target')
-                        self.tar.load_state_dict(self.net.state_dict())
                 step += 1
                 frame = newFrame
                 obs = newObs
                 if done:
                     print("Episode finished after %d timesteps" % step)
                     print("Frames trained: %d" % train_cnt)
-                    print("NetBNTH Score: %d" % sumR)
+                    print("Net Score: %d" % sumR)
                     print("")
                     break
 
