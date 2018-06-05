@@ -124,10 +124,7 @@ class Net(torch.nn.Module):
 class Agent(object):
 
     def __init__(self, gameName):
-        self.EPSL_INT = 1
-        self.EPSL_END = 0.1
         self.DECAY_L = 1e6
-        self.EPSL_DECAY = (self.EPSL_INT - self.EPSL_END) / self.DECAY_L
         self.MEM_CAP = 1e6
         self.REPLAY_START = 100
         self.EPOCH_L = 5e4
@@ -136,7 +133,7 @@ class Agent(object):
         self.simulator = Sim(gameName)
         self.num_action = self.simulator.actionSpace()
         self.beta = 0.99
-        self.alpha = 0.0001
+        self.alpha = 0.001
         self.net = Net()
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=self.alpha, alpha=0.95, momentum=0.95, eps=0.01)
@@ -146,7 +143,15 @@ class Agent(object):
             self.net.cuda()
 
 
-    def epsl_action(self, phai, step):
+    def epsl_action(self, phai, train_cnt):
+        EPSL_INT = 1
+        EPSL_END = 0.1
+        EPSL_DECAY = (EPSL_INT - EPSL_END) / self.DECAY_L
+        if train_cnt > self.DECAY_L:
+            epsl = EPSL_END
+        else:
+            epsl = EPSL_INT - EPSL_DECAY * train_cnt
+
         phai = np.resize(phai,new_shape=(1,4,84,84))
         input = Variable(torch.FloatTensor(phai))
         if self.gpu:
@@ -155,11 +160,8 @@ class Agent(object):
         out = self.net(input)
         self.net.train()
         Q = out.cpu().data.numpy()
+
         rd = np.random.ranf()
-        if step >= self.DECAY_L:
-            epsl = self.EPSL_END
-        else:
-            epsl = self.EPSL_INT - step * self.EPSL_DECAY
         if self.begin:
             print(Q)
             print(epsl)
@@ -168,6 +170,51 @@ class Agent(object):
             return np.random.randint(self.num_action)
         else:
             return np.argmax(Q)
+
+    def bolz_action(self, phai, train_cnt):
+        TMAX = 1000
+        TMIN = 10
+        TDEL = (TMAX - TMIN) / self.DECAY_L
+        if train_cnt > self.DECAY_L:
+            T = TMIN
+        else:
+            T = TMAX - TDEL * train_cnt
+
+        phai = np.resize(phai,new_shape=(1,4,84,84))
+        input = Variable(torch.FloatTensor(phai))
+        if self.gpu:
+            input = input.cuda()
+        self.net.eval()
+        out = self.net(input)
+        self.net.train()
+        Q = out.cpu().data.numpy()
+
+        sum = 0
+        prob = [None] * self.simulator.actionSpace()
+        for i in Q[0]:
+            sum += np.exp(i/T)
+        for i in range(self.simulator.actionSpace()):
+            prob[i] = np.exp(Q[0][i]/T)/sum
+
+
+        if self.begin:
+            print(Q)
+            print(prob)
+            print(T)
+            self.begin = False
+
+        a = 0
+        rd = np.random.ranf()
+
+        for i in prob:
+            if i < rd:
+                rd -= i
+                a += 1
+            else:
+                break
+        return a
+
+
 
 
     def update(self, sample):
@@ -215,9 +262,9 @@ class Agent(object):
         while True:
             if train_cnt - i_epoch * self.EPOCH_L >= self.EPOCH_L:
                 print("Save Info after epoch: %d" % i_epoch)
-                torch.save(self.net.state_dict(), 'netWeight/breakout/cuda/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/breakoutB/cuda/' + str(i_epoch) + '.pth')
                 self.net.cpu()
-                torch.save(self.net.state_dict(), 'netWeight/breakout/cpu/' + str(i_epoch) + '.pth')
+                torch.save(self.net.state_dict(), 'netWeight/breakoutB/cpu/' + str(i_epoch) + '.pth')
                 self.net.cuda()
                 i_epoch += 1
                 if i_epoch == num_epoch:
@@ -234,9 +281,9 @@ class Agent(object):
                 _, _, _ = self.simulator.go(action)
             self.begin = True
             while True:
-                # self.simulator.env.render()
+                self.simulator.env.render()
 
-                action = self.epsl_action(frame,train_cnt)
+                action = self.bolz_action(frame,train_cnt)
 
                 newObs, reward, done = self.simulator.go(action)
                 newFrame = np.concatenate((np.resize(newObs,new_shape=(1,84,84)),frame[:3,:,:]),axis=0)
@@ -254,7 +301,7 @@ class Agent(object):
                 if done:
                     print("Episode finished after %d timesteps" % step)
                     print("Frames trained: %d" % train_cnt)
-                    print("Net Score: %d" % sumR)
+                    print("NetB Score: %d" % sumR)
                     print("")
                     break
 
